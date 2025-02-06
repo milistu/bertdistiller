@@ -1,0 +1,14 @@
+[tool.poetry]
+name = "minilmv2"
+version = "0.1.0"
+description = "BERT Distillation with MiniLMv2 technique."
+authors = ["milistu <studen.m98@gmail.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
