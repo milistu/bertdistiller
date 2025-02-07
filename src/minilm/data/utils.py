@@ -1,25 +1,81 @@
 import os
 from dataclasses import dataclass
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
-from datasets import Dataset, load_dataset
+from datasets import Dataset, concatenate_datasets, load_dataset
 from loguru import logger
 from transformers import PreTrainedTokenizer
+
+
+@dataclass
+class DatasetSource:
+    """Configuration for a single dataset source.
+
+    This class represents one dataset that can come from either Hugging Face
+    or a custom URL. It handles both cases uniformly.
+
+    Attributes:
+        name: Dataset name (if from Hugging Face) or URL
+        column: Column containing the text data
+        subset: Optional subset name for Hugging Face datasets
+        is_hf: Whether this is a Hugging Face dataset
+    """
+
+    name: str
+    column: str
+    subset: Optional[str] = None
+    is_hf: bool = True
+
+    def load(self, cache_dir: Optional[str] = None) -> Dataset:
+        """Load the dataset from its source.
+
+        Args:
+        cache_dir: Optional directory to cache the dataset
+
+        Returns:
+            Loaded dataset ready for processing
+
+        Raises:
+            ValueError: If dataset cannot be loaded
+        """
+        try:
+            if self.is_hf:
+                # Load from Hugging Face
+                return load_dataset(
+                    self.name,
+                    self.subset,
+                    split="train",
+                    cache_dir=cache_dir,
+                )
+            else:
+                # Load from URL using datasets' built-in text loader
+                return load_dataset(
+                    "text",
+                    data_files={"train": self.name},
+                    split="train",
+                    cache_dir=cache_dir,
+                )
+        except Exception as e:
+            logger.error(f"Failed to load dataset {self.name}: {str(e)}")
+            raise
 
 
 @dataclass
 class DataConfig:
     """Configuration for dataset preparation.
 
+    This class can handle multiple dataset sources and combine them
+    into a single training dataset.
+
     Attributes:
-        dataset_name: Name of the dataset in HuggingFace hub
-        column: Column name containing the text data (defaults to 'text')
-        max_samples: Maximum number of samples to use (optional)
+        sources: List of dataset sources to combine
+        max_samples: Maximum number of samples per dataset to use (optional)
+        cache_dir: Optional cache directory for datasets
     """
 
-    dataset_name: str
-    column: str = "text"
+    sources: List[DatasetSource]
     max_samples: Optional[int] = None
+    cache_dir: Optional[str] = None
 
 
 @dataclass
@@ -44,20 +100,20 @@ def prepare_dataset(
     tokenization_kwargs: Optional[Dict] = None,
     seed: int = 41,
 ) -> Dataset:
-    """Prepare and tokenize a dataset for training or validation.
+    """Prepare and tokenize multiple datasets for training or validation.
+
+    This function loads multiple datasets, combines them, and applies
+    consistent tokenization across the combined dataset.
 
     Args:
         tokenizer: Tokenizer instance to process the text
-        config: Dataset configuration
+        config: Dataset configuration containing multiple sources
         max_seq_len: Maximum sequence length for tokenization
         tokenization_kwargs: Additional arguments for tokenizer
         seed: Random seed for dataset shuffling
 
     Returns:
-        Tokenized dataset ready for training
-
-    Raises:
-        ValueError: If dataset_name is not found or column doesn't exist
+        Combined and tokenized dataset ready for training
     """
 
     # Disable tokenizers parallelism for better memory usage
@@ -65,43 +121,50 @@ def prepare_dataset(
 
     try:
         # Load and optionally limit dataset size
-        dataset = load_dataset(config.dataset_name, split="train").shuffle(seed=seed)
-        if config.max_samples:
-            dataset = dataset.select(range(min(len(dataset), config.max_samples)))
+        datasets = []
+        for source in config.sources:
+            dataset = source.load(cache_dir=config.cache_dir)
 
-        logger.info(f"Loaded dataset {config.dataset_name} with {len(dataset)} samples")
+            # Limit samples if needed
+            if config.max_samples:
+                dataset = dataset.select(range(min(len(dataset), config.max_samples)))
 
-        # Validate column exists
-        if config.column not in dataset.column_names:
-            raise ValueError(
-                f"Column '{config.column}' not found in dataset. "
-                f"Available columns: {dataset.column_names}"
+            # Tokenization Function
+            def tokenize_batch(examples):
+                """Tokenize a batch of examples."""
+                # Join multi-line text with newlines
+                texts = [
+                    "\n".join(text) if isinstance(text, (list, tuple)) else text
+                    for text in examples[source.column]
+                ]
+                # Apply tokenization with default
+
+                return tokenizer(
+                    texts,
+                    truncation=True,
+                    max_length=max_seq_len,
+                    **(tokenization_kwargs or {}),
+                )
+
+            tokenized = dataset.map(
+                tokenize_batch,
+                batched=True,
+                desc=f"Tokenizing {source.name}",
+                num_proc=os.cpu_count(),
             )
+            datasets.append(tokenized)
 
-        # Tokenization Function
-        def tokenize_batch(examples):
-            """Tokenize a batch of examples."""
-            # Join multi-line text with newlines
-            texts = [
-                "\n".join(text) if isinstance(text, (list, tuple)) else text
-                for text in examples[config.column]
-            ]
-            # Apply tokenization with default
+        # Combine all datasets
+        combined_dataset = concatenate_datasets(datasets)
+        # Shuffle
+        combined_dataset = combined_dataset.shuffle(seed=seed)
 
-            return tokenizer(
-                texts,
-                truncation=True,
-                max_length=max_seq_len,
-                **(tokenization_kwargs or {}),
-            )
+        logger.info(
+            f"Created dataset with {len(combined_dataset)} samples "
+            f"from {len(config.sources)} sources"
+        )
 
-        # Apply tokenization and convert to PyTorch format
-        return dataset.map(
-            tokenize_batch,
-            batched=True,
-            desc="Tokenizing dataset",
-            num_proc=os.cpu_count(),
-        ).with_format("torch")
+        return combined_dataset.with_format("torch")
 
     except Exception as e:
         logger.error(f"Error preparing dataset: {str(e)}")
