@@ -1,0 +1,17 @@
+{
+    "sources": [
+        {
+            "name": "legacy-datasets/wikipedia",
+            "column": "text",
+            "subset": "20220301.en",
+            "is_hf": true
+        },
+        {
+            "name": "bookcorpus/bookcorpus",
+            "column": "text",
+            "is_hf": true
+        }
+    ],
+    "max_samples": null,
+    "cache_dir": "./cache"
+}
