@@ -1,96 +1,51 @@
+# src/minilm/data/dataset.py
+
 import os
-from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 from datasets import Dataset, concatenate_datasets, load_dataset
 from loguru import logger
 from transformers import PreTrainedTokenizer
 
+from ..config.data_config import DataArguments, DataConfig, DatasetSource
 
-@dataclass
-class DatasetSource:
-    """Configuration for a single dataset source.
 
-    This class represents one dataset that can come from either Hugging Face
-    or a custom URL. It handles both cases uniformly.
+def load_dataset_from_source(
+    source: DatasetSource, cache_dir: Optional[str] = None
+) -> Dataset:
+    """Load a dataset from its source configuration.
 
-    Attributes:
-        name: Dataset name (if from Hugging Face) or URL
-        column: Column containing the text data
-        subset: Optional subset name for Hugging Face datasets
-        is_hf: Whether this is a Hugging Face dataset
+    Args:
+        source (DatasetSource): Dataset source configuration
+        cache_dir (Optional[str]): Optional directory to cache the dataset
+
+    Returns:
+        Loaded dataset ready for processing
+
+    Raises:
+        ValueError: If dataset cannot be loaded
     """
 
-    name: str
-    column: str
-    subset: Optional[str] = None
-    is_hf: bool = True
-
-    def load(self, cache_dir: Optional[str] = None) -> Dataset:
-        """Load the dataset from its source.
-
-        Args:
-        cache_dir: Optional directory to cache the dataset
-
-        Returns:
-            Loaded dataset ready for processing
-
-        Raises:
-            ValueError: If dataset cannot be loaded
-        """
-        try:
-            if self.is_hf:
-                # Load from Hugging Face
-                return load_dataset(
-                    self.name,
-                    self.subset,
-                    split="train",
-                    cache_dir=cache_dir,
-                )
-            else:
-                # Load from URL using datasets' built-in text loader
-                return load_dataset(
-                    "text",
-                    data_files={"train": self.name},
-                    split="train",
-                    cache_dir=cache_dir,
-                )
-        except Exception as e:
-            logger.error(f"Failed to load dataset {self.name}: {str(e)}")
-            raise
-
-
-@dataclass
-class DataConfig:
-    """Configuration for dataset preparation.
-
-    This class can handle multiple dataset sources and combine them
-    into a single training dataset.
-
-    Attributes:
-        sources: List of dataset sources to combine
-        max_samples: Maximum number of samples per dataset to use (optional)
-        cache_dir: Optional cache directory for datasets
-    """
-
-    sources: List[DatasetSource]
-    max_samples: Optional[int] = None
-    cache_dir: Optional[str] = None
-
-
-@dataclass
-class DataArguments:
-    """Arguments for dataset processing.
-
-    Attributes:
-        train_config: Configuration for training dataset
-        val_config: Configuration for validation dataset (optional)
-        max_seq_len: Maximum sequence length for tokenization
-    """
-
-    train_config: DataConfig
-    val_config: Optional[DataConfig] = None
-    max_seq_len: int = 512
+    try:
+        if source.is_hf:
+            # Load from Hugging Face
+            return load_dataset(
+                source.name,
+                source.subset,
+                split="train",
+                cache_dir=cache_dir,
+            )
+        else:
+            # Load from URL using datasets' built-in text loader
+            return load_dataset(
+                "text",
+                data_files={"train": source.name},
+                split="train",
+                cache_dir=cache_dir,
+            )
+    except Exception as e:
+        logger.error(f"Failed to load dataset {source.name}: {str(e)}")
+        raise
 
 
 def prepare_dataset(
@@ -98,7 +53,7 @@ def prepare_dataset(
     config: DataConfig,
     max_seq_len: int,
     tokenization_kwargs: Optional[Dict] = None,
-    seed: int = 41,
+    seed: int = 42,
 ) -> Dataset:
     """Prepare and tokenize multiple datasets for training or validation.
 
@@ -123,7 +78,7 @@ def prepare_dataset(
         # Load and optionally limit dataset size
         datasets = []
         for source in config.sources:
-            dataset = source.load(cache_dir=config.cache_dir)
+            dataset = load_dataset_from_source(source, cache_dir=config.cache_dir)
 
             # Limit samples if needed
             if config.max_samples:
@@ -137,8 +92,6 @@ def prepare_dataset(
                     "\n".join(text) if isinstance(text, (list, tuple)) else text
                     for text in examples[source.column]
                 ]
-                # Apply tokenization with default
-
                 return tokenizer(
                     texts,
                     truncation=True,

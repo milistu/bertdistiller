@@ -1,0 +1,9 @@
+{
+    "sources": [
+        {
+            "name": "path/to/data.csv",
+            "column": "text_column",
+            "is_hf": false
+        }
+    ]
+}
