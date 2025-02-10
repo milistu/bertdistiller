@@ -31,6 +31,12 @@ def create_model_parser() -> argparse.ArgumentParser:
         required=False,
         help="Optional tokenizer directory (defaults to input_model_dir)",
     )
+    parser.add_argument(
+        "--cache_dir",
+        type=str,
+        required=False,
+        help="Optional directory for caching model files",
+    )
 
     # Student model architecture
     parser.add_argument(
@@ -72,6 +78,13 @@ def create_model_parser() -> argparse.ArgumentParser:
         default="{(1, 1): 1, (2, 2): 1, (3, 3): 1}",
         help="Relations configuration as a dictionary mapping (query_id, key_id) "
         "to weights. Query=1, Key=2, Value=3",
+    )
+    parser.add_argument(
+        "--model_type",
+        type=str,
+        choices=["bert", "modernbert"],
+        default="bert",
+        help="Model type for MiniLM distillation",
     )
 
     return parser
