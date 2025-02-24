@@ -104,8 +104,8 @@ def prepare_dataset(
                 batched=True,
                 desc=f"Tokenizing {source.name}",
                 num_proc=os.cpu_count(),
+                remove_columns=dataset.column_names,
             )
-            tokenized = tokenized.remove_columns(dataset.column_names)
             datasets.append(tokenized)
 
         # Combine all datasets
