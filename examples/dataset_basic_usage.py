@@ -1,4 +1,4 @@
-from minilm.config import DatasetSource, DataConfig, DataArguments
+from src.minilm.config import DatasetSource, DataConfig, DataArguments
 
 # Define Source
 wiki_source = DatasetSource(
