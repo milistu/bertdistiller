@@ -1,3 +1,4 @@
+import torch
 from transformers import AutoConfig, AutoModel
 
 from .args import MiniLMTrainingArguments
@@ -60,13 +61,22 @@ def _init_bert_student(teacher_model, student_model, args):
         # Direct copy for same size
         student_model.embeddings.load_state_dict(teacher_model.embeddings.state_dict())
     else:
-        # For different sizes, initialize only the first portion
-        for name, param in teacher_model.embeddings.named_parameters():
-            if "weight" in name:
-                student_param = getattr(student_model.embeddings, name)
-                student_param.data.copy_(
-                    param.data[: args.student_hidden_size, : args.student_hidden_size]
-                )
+        # For different sizes, properly access the embedding layers
+        student_model.embeddings.word_embeddings.weight.data.copy_(
+            teacher_model.embeddings.word_embeddings.weight.data[
+                :, : args.student_hidden_size
+            ]
+        )
+        student_model.embeddings.position_embeddings.weight.data.copy_(
+            teacher_model.embeddings.position_embeddings.weight.data[
+                :, : args.student_hidden_size
+            ]
+        )
+        student_model.embeddings.token_type_embeddings.weight.data.copy_(
+            teacher_model.embeddings.token_type_embeddings.weight.data[
+                :, : args.student_hidden_size
+            ]
+        )
 
     # Handle encoder layers
     layers_per_block = len(teacher_model.encoder.layer) // args.student_layer
@@ -120,6 +130,17 @@ def _init_bert_student(teacher_model, student_model, args):
                     : args.student_hidden_size
                 ]
             )
+            # Copy LayerNorm parameters
+            student_layer.attention.output.LayerNorm.weight.data.copy_(
+                teacher_layer.attention.output.LayerNorm.weight.data[
+                    : args.student_hidden_size
+                ]
+            )
+            student_layer.attention.output.LayerNorm.bias.data.copy_(
+                teacher_layer.attention.output.LayerNorm.bias.data[
+                    : args.student_hidden_size
+                ]
+            )
 
         # Copy FFN weights
         if teacher_model.config.hidden_size == args.student_hidden_size:
@@ -147,6 +168,13 @@ def _init_bert_student(teacher_model, student_model, args):
             student_layer.output.dense.bias.data.copy_(
                 teacher_layer.output.dense.bias.data[: args.student_hidden_size]
             )
+            # Copy the output LayerNorm parameters
+            student_layer.output.LayerNorm.weight.data.copy_(
+                teacher_layer.output.LayerNorm.weight.data[: args.student_hidden_size]
+            )
+            student_layer.output.LayerNorm.bias.data.copy_(
+                teacher_layer.output.LayerNorm.bias.data[: args.student_hidden_size]
+            )
 
 
 def _init_modern_bert_student(teacher_model, student_model, args):
@@ -155,11 +183,36 @@ def _init_modern_bert_student(teacher_model, student_model, args):
     if teacher_model.config.hidden_size == args.student_hidden_size:
         student_model.embeddings.load_state_dict(teacher_model.embeddings.state_dict())
     else:
+        # Direct access to tok_embeddings which is the equivalent of word_embeddings in ModernBERT
         student_model.embeddings.tok_embeddings.weight.data.copy_(
             teacher_model.embeddings.tok_embeddings.weight.data[
                 :, : args.student_hidden_size
             ]
         )
+
+        # Copy embedding norm parameters if they exist
+        if hasattr(student_model.embeddings, "norm") and hasattr(
+            teacher_model.embeddings, "norm"
+        ):
+            if hasattr(student_model.embeddings.norm, "weight") and hasattr(
+                teacher_model.embeddings.norm, "weight"
+            ):
+                student_model.embeddings.norm.weight.data.copy_(
+                    teacher_model.embeddings.norm.weight.data[
+                        : args.student_hidden_size
+                    ]
+                )
+
+            # More careful handling of bias - check if it exists AND is not None
+            if (
+                hasattr(student_model.embeddings.norm, "bias")
+                and student_model.embeddings.norm.bias is not None
+                and hasattr(teacher_model.embeddings.norm, "bias")
+                and teacher_model.embeddings.norm.bias is not None
+            ):
+                student_model.embeddings.norm.bias.data.copy_(
+                    teacher_model.embeddings.norm.bias.data[: args.student_hidden_size]
+                )
 
     # Handle encoder layers
     layers_per_block = len(teacher_model.layers) // args.student_layer
@@ -207,9 +260,60 @@ def _init_modern_bert_student(teacher_model, student_model, args):
                 ]
             )
 
-        # Copy LayerNorm parameters
-        if hasattr(teacher_layer.attn_norm, "weight"):
-            student_layer.attn_norm.load_state_dict(
-                teacher_layer.attn_norm.state_dict()
+        # Handle attn_norm - carefully checking for None values
+        if not isinstance(
+            teacher_layer.attn_norm, torch.nn.Identity
+        ) and not isinstance(student_layer.attn_norm, torch.nn.Identity):
+            if hasattr(teacher_layer.attn_norm, "weight") and hasattr(
+                student_layer.attn_norm, "weight"
+            ):
+                student_layer.attn_norm.weight.data.copy_(
+                    teacher_layer.attn_norm.weight.data[: args.student_hidden_size]
+                )
+
+            if (
+                hasattr(teacher_layer.attn_norm, "bias")
+                and teacher_layer.attn_norm.bias is not None
+                and hasattr(student_layer.attn_norm, "bias")
+                and student_layer.attn_norm.bias is not None
+            ):
+                student_layer.attn_norm.bias.data.copy_(
+                    teacher_layer.attn_norm.bias.data[: args.student_hidden_size]
+                )
+
+        # Handle mlp_norm - carefully checking for None values
+        if hasattr(teacher_layer.mlp_norm, "weight") and hasattr(
+            student_layer.mlp_norm, "weight"
+        ):
+            student_layer.mlp_norm.weight.data.copy_(
+                teacher_layer.mlp_norm.weight.data[: args.student_hidden_size]
             )
-        student_layer.mlp_norm.load_state_dict(teacher_layer.mlp_norm.state_dict())
+
+        if (
+            hasattr(teacher_layer.mlp_norm, "bias")
+            and teacher_layer.mlp_norm.bias is not None
+            and hasattr(student_layer.mlp_norm, "bias")
+            and student_layer.mlp_norm.bias is not None
+        ):
+            student_layer.mlp_norm.bias.data.copy_(
+                teacher_layer.mlp_norm.bias.data[: args.student_hidden_size]
+            )
+
+    # Handle final norm if it exists in both models
+    if hasattr(teacher_model, "final_norm") and hasattr(student_model, "final_norm"):
+        if hasattr(teacher_model.final_norm, "weight") and hasattr(
+            student_model.final_norm, "weight"
+        ):
+            student_model.final_norm.weight.data.copy_(
+                teacher_model.final_norm.weight.data[: args.student_hidden_size]
+            )
+
+        if (
+            hasattr(teacher_model.final_norm, "bias")
+            and teacher_model.final_norm.bias is not None
+            and hasattr(student_model.final_norm, "bias")
+            and student_model.final_norm.bias is not None
+        ):
+            student_model.final_norm.bias.data.copy_(
+                teacher_model.final_norm.bias.data[: args.student_hidden_size]
+            )
