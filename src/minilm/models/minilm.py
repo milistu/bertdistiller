@@ -219,13 +219,20 @@ class MiniLM(nn.Module):
         for batch_idx in range(batch_size):
             valid_len = seq_lens[batch_idx].item()
 
-            # Extract valid portions of relations
-            t_rel = teacher_relations[batch_idx, :, :valid_len, :valid_len]
-            s_rel = student_relations[batch_idx, :, :valid_len, :valid_len]
+            # # Extract valid portions of relations
+            # t_rel = teacher_relations[batch_idx, :, :valid_len, :valid_len]
+            # s_rel = student_relations[batch_idx, :, :valid_len, :valid_len]
 
-            # Compute distributions
-            teacher_probs = torch.softmax(t_rel, dim=-1)
-            student_probs = torch.log_softmax(s_rel, dim=-1)
+            # # Compute distributions
+            # teacher_probs = torch.softmax(t_rel, dim=-1)
+            # student_probs = torch.log_softmax(s_rel, dim=-1)
+
+            teacher_probs = nn.Softmax(dim=-1)(
+                teacher_relations[batch_idx, :, :valid_len, :valid_len]
+            )
+            student_probs = nn.functional.log_softmax(
+                student_relations[batch_idx, :, :valid_len, :valid_len], dim=-1
+            )
 
             # Calculate KL divergence
             loss = self.kl_loss(
@@ -299,12 +306,12 @@ class MiniLM(nn.Module):
         student_head_size = self.student.config.hidden_size // self.num_relation_heads
 
         # Get relation vectors
-        t_query, t_key, t_value = self._get_relation_vectors(
+        relation_vectors_T = self._get_relation_vectors(
             attention_module=teacher_attn,
             hidden_states=teacher_hidden,
             head_size=teacher_head_size,
         )
-        s_query, s_key, s_value = self._get_relation_vectors(
+        relation_vectors_S = self._get_relation_vectors(
             attention_module=student_attn,
             hidden_states=student_hidden,
             head_size=student_head_size,
@@ -313,24 +320,20 @@ class MiniLM(nn.Module):
         # Loss Calculation
         total_loss = 0.0
         for (m, n), weight in self.relations.items():
-            # Get corresponding vectors based on relation indices
-            t_vectors = [t_query, t_key, t_value]
-            s_vectors = [s_query, s_key, s_value]
-
             # Compute scaled dot-product attention
             teacher_sim = torch.matmul(
-                t_vectors[m - 1],  # -1 because relations are 1-based
-                t_vectors[n - 1].transpose(-1, -2),
+                relation_vectors_T[m - 1],  # -1 because relations are 1-based
+                relation_vectors_T[n - 1].transpose(-1, -2),
             ) / math.sqrt(teacher_head_size)
 
             student_sim = torch.matmul(
-                s_vectors[m - 1],
-                s_vectors[n - 1].transpose(-1, -2),
+                relation_vectors_S[m - 1],
+                relation_vectors_S[n - 1].transpose(-1, -2),
             ) / math.sqrt(student_head_size)
 
             # Calculate KL divergence loss
             relation_loss = self._compute_kl_divergence(
-                teacher_relations=teacher_sim,
+                teacher_relations=teacher_sim.detach(),
                 student_relations=student_sim,
                 attention_mask=attention_mask,
             )
