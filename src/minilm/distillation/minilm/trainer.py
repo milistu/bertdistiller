@@ -205,6 +205,12 @@ class MiniLMTrainer(Trainer):
         # Return average loss across batch
         return total_loss / batch_size
 
+    def prediction_step(self, model, inputs, prediction_loss_only, ignore_keys=None):
+        loss = self.compute_loss(model, inputs)
+        loss = loss.mean().detach()
+
+        return (loss, None, None)
+
     def compute_loss(
         self, model, inputs, return_outputs=False, num_items_in_batch=None
     ):
@@ -279,4 +285,4 @@ class MiniLMTrainer(Trainer):
 
             total_loss += weight * relation_loss
 
-        return (total_loss,)
+        return (total_loss,) if return_outputs else total_loss
