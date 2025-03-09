@@ -35,33 +35,85 @@ class BertAttentionExtractor(AttentionExtractor):
         return attention_module.query, attention_module.key, attention_module.value
 
 
-class ModernBertAttentionExtractor(AttentionExtractor):
-    """Handles attention extraction for ModernBERT models."""
+# class ModernBertAttentionExtractor(AttentionExtractor):
+#     """Handles attention extraction for ModernBERT models."""
 
+#     def get_attention_module(self, model: PreTrainedModel, layer_idx: int) -> nn.Module:
+#         return model.layers[layer_idx].attn
+
+#     def get_qkv_projections(
+#         self, attention_module: nn.Module
+#     ) -> Tuple[nn.Module, nn.Module, nn.Module]:
+#         # Get model dimensions
+#         hidden_size = attention_module.Wqkv.in_features
+#         qkv_size = attention_module.Wqkv.out_features
+#         component_size = qkv_size // 3
+#         num_heads = 12  # From your config
+
+#         class QKVProcessor(nn.Module):
+#             def __init__(self, component_idx: int):
+#                 super().__init__()
+#                 self.component_idx = component_idx
+#                 self.head_dim = hidden_size // num_heads
+
+#             def forward(self, x: Tensor) -> Tensor:
+#                 batch_size, seq_len, _ = x.size()
+
+#                 # Apply the combined QKV projection
+#                 combined = attention_module.Wqkv(x)
+
+#                 # Reshape to [batch, seq_len, 3, num_heads, head_dim]
+#                 combined = combined.view(
+#                     batch_size, seq_len, 3, num_heads, self.head_dim
+#                 )
+
+#                 # Extract the component (Q=0, K=1, V=2)
+#                 component = combined[:, :, self.component_idx]
+
+#                 # Return in shape [batch, seq_len, hidden_size]
+#                 return component.reshape(batch_size, seq_len, -1)
+
+
+#         return QKVProcessor(0), QKVProcessor(1), QKVProcessor(2)
+class ModernBertAttentionExtractor(AttentionExtractor):
     def get_attention_module(self, model: PreTrainedModel, layer_idx: int) -> nn.Module:
         return model.layers[layer_idx].attn
 
     def get_qkv_projections(
         self, attention_module: nn.Module
     ) -> Tuple[nn.Module, nn.Module, nn.Module]:
-        # ModernBERT uses a combined QKV projection
-        # We need to split it into individual Q, K, V components
-        hidden_size = attention_module.Wqkv.out_features // 3
+        hidden_size = attention_module.Wqkv.in_features
+        num_heads = 12
 
-        class QKVSplit(nn.Module):
-            def __init__(self, start_idx: int):
+        class QKVProcessor(nn.Module):
+            def __init__(self, component_idx: int):
                 super().__init__()
-                self.start_idx = start_idx
+                self.component_idx = component_idx
+                self.head_dim = hidden_size // num_heads
+                self.rotary_emb = attention_module.rotary_emb
 
             def forward(self, x: Tensor) -> Tensor:
-                qkv = attention_module.Wqkv(x)
-                return qkv[
-                    :,
-                    :,
-                    self.start_idx * hidden_size : (self.start_idx + 1) * hidden_size,
-                ]
+                batch_size, seq_len, _ = x.size()
+                combined = attention_module.Wqkv(x)
+                combined = combined.view(
+                    batch_size, seq_len, 3, num_heads, self.head_dim
+                )
+                component = combined[:, :, self.component_idx]
 
-        return (QKVSplit(0), QKVSplit(1), QKVSplit(2))  # Query  # Key  # Value
+                # Use position_ids from input (not arange!)
+                if self.component_idx in [0, 1]:
+                    # positions shape: [batch_size, seq_len]
+                    positions = self.get_positions(x)  # Implement this
+                    component = self.rotary_emb(component, positions=positions)
+
+                return component.reshape(batch_size, seq_len, -1)
+
+            def get_positions(self, x: Tensor) -> Tensor:
+                # Retrieve position_ids from the input dictionary
+                # (Assuming position_ids are passed in the input)
+                return self.position_ids.unsqueeze(0)  # [1, seq_len] for broadcasting
+
+        return QKVProcessor(0), QKVProcessor(1), QKVProcessor(2)
 
 
 class MiniLMTrainer(Trainer):
