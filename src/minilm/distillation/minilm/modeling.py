@@ -1,4 +1,3 @@
-import torch
 from transformers import AutoConfig, AutoModel
 
 from .args import MiniLMTrainingArguments
@@ -37,8 +36,7 @@ def create_student(
 
     # Adjust intermediate_size based on model type
     if "ModernBert" in teacher_config.architectures[0]:
-        # ModernBERT: intermediate_size = 1.5 * hidden_size
-        student_config.intermediate_size = int(args.student_hidden_size * 1.5)
+        raise NotImplementedError("ModernBERT distillation is not yet supported.")
     else:
         # Original BERT: intermediate_size = 4 * hidden_size
         student_config.intermediate_size = 4 * args.student_hidden_size
@@ -56,7 +54,7 @@ def create_student(
         )
 
         if is_modern_bert:
-            _init_modern_bert_student(teacher_model, student_model, args)
+            raise NotImplementedError("ModernBERT distillation is not yet supported.")
         else:
             _init_bert_student(teacher_model, student_model, args)
 
@@ -184,151 +182,3 @@ def _init_bert_student(teacher_model, student_model, args):
             student_layer.output.LayerNorm.bias.data.copy_(
                 teacher_layer.output.LayerNorm.bias.data[: args.student_hidden_size]
             )
-
-
-def _init_modern_bert_student(teacher_model, student_model, args):
-    """Initialize ModernBERT student model with teacher weights correctly."""
-    # Handle embeddings
-    if teacher_model.config.hidden_size == args.student_hidden_size:
-        student_model.embeddings.load_state_dict(teacher_model.embeddings.state_dict())
-    else:
-        # Handle token embeddings
-        student_model.embeddings.tok_embeddings.weight.data.copy_(
-            teacher_model.embeddings.tok_embeddings.weight.data[
-                :, : args.student_hidden_size
-            ]
-        )
-
-        # Copy embedding norm parameters if they exist
-        if hasattr(student_model.embeddings, "norm") and hasattr(
-            teacher_model.embeddings, "norm"
-        ):
-            if hasattr(student_model.embeddings.norm, "weight"):
-                student_model.embeddings.norm.weight.data.copy_(
-                    teacher_model.embeddings.norm.weight.data[
-                        : args.student_hidden_size
-                    ]
-                )
-
-            if (
-                hasattr(student_model.embeddings.norm, "bias")
-                and student_model.embeddings.norm.bias is not None
-            ):
-                student_model.embeddings.norm.bias.data.copy_(
-                    teacher_model.embeddings.norm.bias.data[: args.student_hidden_size]
-                )
-
-    # Handle encoder layers
-    layers_per_block = len(teacher_model.layers) // args.student_layer
-
-    for student_idx in range(args.student_layer):
-        teacher_idx = student_idx * layers_per_block
-        teacher_layer = teacher_model.layers[teacher_idx]
-        student_layer = student_model.layers[student_idx]
-
-        # Handle attention weights
-        if teacher_model.config.hidden_size == args.student_hidden_size:
-            student_layer.attn.Wqkv.load_state_dict(
-                teacher_layer.attn.Wqkv.state_dict()
-            )
-            student_layer.attn.Wo.load_state_dict(teacher_layer.attn.Wo.state_dict())
-        else:
-            # Get the dimensions for proper slicing
-            teacher_hidden = teacher_model.config.hidden_size
-            student_hidden = args.student_hidden_size
-
-            # ModernBERT's QKV projection has shape [3*hidden_size, hidden_size]
-            # It's organized as consecutive chunks for Q, K, and V
-            teacher_qkv = teacher_layer.attn.Wqkv.weight.data
-            student_qkv = student_layer.attn.Wqkv.weight.data
-
-            # For each of the three components (Q, K, V)
-            for i in range(3):
-                t_start = i * teacher_hidden
-                t_end = (i + 1) * teacher_hidden
-
-                s_start = i * student_hidden
-                s_end = (i + 1) * student_hidden
-
-                # Only copy the subset that fits in the student's smaller dimensions
-                copy_size = min(student_hidden, teacher_hidden)
-                # Take the top-left corner of each component's weight matrix
-                student_qkv[s_start : s_start + copy_size, :student_hidden] = (
-                    teacher_qkv[t_start : t_start + copy_size, :student_hidden]
-                )
-
-            # Output projection handling
-            student_layer.attn.Wo.weight.data[:student_hidden, :student_hidden] = (
-                teacher_layer.attn.Wo.weight.data[:student_hidden, :student_hidden]
-            )
-
-        # Handle MLP weights - this is where a key issue was happening
-        if teacher_model.config.hidden_size == args.student_hidden_size:
-            student_layer.mlp.Wi.load_state_dict(teacher_layer.mlp.Wi.state_dict())
-            student_layer.mlp.Wo.load_state_dict(teacher_layer.mlp.Wo.state_dict())
-        else:
-            # Get the dimensions
-            student_hidden = args.student_hidden_size
-            student_intermediate = student_layer.mlp.Wi.out_features
-            student_wo_in = student_layer.mlp.Wo.in_features  # This is critical!
-
-            # The problematic line was dividing by 2 incorrectly
-            # ModernBERT has a unique MLP structure where Wo.in_features is
-            # exactly half of Wi.out_features - this is by design
-
-            # Copy Wi weights - input to hidden projection
-            student_layer.mlp.Wi.weight.data[:student_intermediate, :student_hidden] = (
-                teacher_layer.mlp.Wi.weight.data[:student_intermediate, :student_hidden]
-            )
-
-            # Copy Wo weights - hidden to output projection
-            # Use the actual input size of Wo rather than calculating it
-            student_layer.mlp.Wo.weight.data[:student_hidden, :student_wo_in] = (
-                teacher_layer.mlp.Wo.weight.data[:student_hidden, :student_wo_in]
-            )
-
-        # Handle layer norms
-        for norm_name in ["attn_norm", "mlp_norm"]:
-            teacher_norm = getattr(teacher_layer, norm_name)
-            student_norm = getattr(student_layer, norm_name)
-
-            # Skip if either is an Identity layer
-            if isinstance(teacher_norm, torch.nn.Identity) or isinstance(
-                student_norm, torch.nn.Identity
-            ):
-                continue
-
-            # Copy weights and biases if they exist
-            if hasattr(teacher_norm, "weight") and hasattr(student_norm, "weight"):
-                student_norm.weight.data.copy_(
-                    teacher_norm.weight.data[: args.student_hidden_size]
-                )
-
-            if (
-                hasattr(teacher_norm, "bias")
-                and teacher_norm.bias is not None
-                and hasattr(student_norm, "bias")
-                and student_norm.bias is not None
-            ):
-                student_norm.bias.data.copy_(
-                    teacher_norm.bias.data[: args.student_hidden_size]
-                )
-
-    # Handle final norm if it exists
-    if hasattr(teacher_model, "final_norm") and hasattr(student_model, "final_norm"):
-        if hasattr(teacher_model.final_norm, "weight"):
-            student_model.final_norm.weight.data.copy_(
-                teacher_model.final_norm.weight.data[: args.student_hidden_size]
-            )
-
-        if (
-            hasattr(teacher_model.final_norm, "bias")
-            and teacher_model.final_norm.bias is not None
-            and hasattr(student_model.final_norm, "bias")
-            and student_model.final_norm.bias is not None
-        ):
-            student_model.final_norm.bias.data.copy_(
-                teacher_model.final_norm.bias.data[: args.student_hidden_size]
-            )
-
-    return student_model

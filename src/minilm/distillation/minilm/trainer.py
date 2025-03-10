@@ -35,87 +35,6 @@ class BertAttentionExtractor(AttentionExtractor):
         return attention_module.query, attention_module.key, attention_module.value
 
 
-# class ModernBertAttentionExtractor(AttentionExtractor):
-#     """Handles attention extraction for ModernBERT models."""
-
-#     def get_attention_module(self, model: PreTrainedModel, layer_idx: int) -> nn.Module:
-#         return model.layers[layer_idx].attn
-
-#     def get_qkv_projections(
-#         self, attention_module: nn.Module
-#     ) -> Tuple[nn.Module, nn.Module, nn.Module]:
-#         # Get model dimensions
-#         hidden_size = attention_module.Wqkv.in_features
-#         qkv_size = attention_module.Wqkv.out_features
-#         component_size = qkv_size // 3
-#         num_heads = 12  # From your config
-
-#         class QKVProcessor(nn.Module):
-#             def __init__(self, component_idx: int):
-#                 super().__init__()
-#                 self.component_idx = component_idx
-#                 self.head_dim = hidden_size // num_heads
-
-#             def forward(self, x: Tensor) -> Tensor:
-#                 batch_size, seq_len, _ = x.size()
-
-#                 # Apply the combined QKV projection
-#                 combined = attention_module.Wqkv(x)
-
-#                 # Reshape to [batch, seq_len, 3, num_heads, head_dim]
-#                 combined = combined.view(
-#                     batch_size, seq_len, 3, num_heads, self.head_dim
-#                 )
-
-#                 # Extract the component (Q=0, K=1, V=2)
-#                 component = combined[:, :, self.component_idx]
-
-#                 # Return in shape [batch, seq_len, hidden_size]
-#                 return component.reshape(batch_size, seq_len, -1)
-
-
-#         return QKVProcessor(0), QKVProcessor(1), QKVProcessor(2)
-class ModernBertAttentionExtractor(AttentionExtractor):
-    def get_attention_module(self, model: PreTrainedModel, layer_idx: int) -> nn.Module:
-        return model.layers[layer_idx].attn
-
-    def get_qkv_projections(
-        self, attention_module: nn.Module
-    ) -> Tuple[nn.Module, nn.Module, nn.Module]:
-        hidden_size = attention_module.Wqkv.in_features
-        num_heads = 12
-
-        class QKVProcessor(nn.Module):
-            def __init__(self, component_idx: int):
-                super().__init__()
-                self.component_idx = component_idx
-                self.head_dim = hidden_size // num_heads
-                self.rotary_emb = attention_module.rotary_emb
-
-            def forward(self, x: Tensor) -> Tensor:
-                batch_size, seq_len, _ = x.size()
-                combined = attention_module.Wqkv(x)
-                combined = combined.view(
-                    batch_size, seq_len, 3, num_heads, self.head_dim
-                )
-                component = combined[:, :, self.component_idx]
-
-                # Use position_ids from input (not arange!)
-                if self.component_idx in [0, 1]:
-                    # positions shape: [batch_size, seq_len]
-                    positions = self.get_positions(x)  # Implement this
-                    component = self.rotary_emb(component, positions=positions)
-
-                return component.reshape(batch_size, seq_len, -1)
-
-            def get_positions(self, x: Tensor) -> Tensor:
-                # Retrieve position_ids from the input dictionary
-                # (Assuming position_ids are passed in the input)
-                return self.position_ids.unsqueeze(0)  # [1, seq_len] for broadcasting
-
-        return QKVProcessor(0), QKVProcessor(1), QKVProcessor(2)
-
-
 class MiniLMTrainer(Trainer):
     def __init__(self, *args, teacher_model: PreTrainedModel, **kwargs):
         super().__init__(*args, **kwargs)
@@ -142,7 +61,7 @@ class MiniLMTrainer(Trainer):
     def _get_attention_extractor(self):
         architecture = self.teacher.config.architectures[0]
         if "ModernBertForMaskedLM" == architecture:
-            return ModernBertAttentionExtractor()
+            raise NotImplementedError("ModernBERT distillation is not yet supported.")
         elif "BertForMaskedLM" == architecture:
             return BertAttentionExtractor()
         else:
@@ -156,9 +75,8 @@ class MiniLMTrainer(Trainer):
     ) -> Tuple[Tensor, Tensor, Tensor]:
         """Extracts query/key/value vectors for relation projection.
 
-        This method handles the extraction of Q/K/V vectors from both BERT and ModernBERT
-        architectures. It uses the appropriate attention extractor to get the projection
-        matrices and applies them to the hidden states.
+        This method handles the extraction of Q/K/V vectors.
+        It uses the appropriate attention extractor to get the projection matrices and applies them to the hidden states.
 
         Args:
             attention_module: Self-attention module from transformer layer
