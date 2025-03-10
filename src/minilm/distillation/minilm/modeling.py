@@ -1,4 +1,5 @@
 from transformers import AutoConfig, AutoModel
+from transformers.models.bert import BertModel
 
 from .args import MiniLMTrainingArguments
 
@@ -8,7 +9,7 @@ def create_student(
     args: MiniLMTrainingArguments,
     use_teacher_weights: bool = False,
     cache_dir: str = None,
-) -> AutoModel:
+) -> BertModel:
     """Create the student model with smaller configuration.
 
     This function creates a student model that can be either initialized with random
@@ -25,7 +26,9 @@ def create_student(
         The initialized student model
     """
     # Load the teacher model
-    teacher_config = AutoConfig.from_pretrained(teacher_model_name_or_path)
+    teacher_config = AutoConfig.from_pretrained(
+        teacher_model_name_or_path, cache_dir=cache_dir
+    )
     # Create the base student configuration
     student_config = AutoConfig.from_pretrained(
         teacher_model_name_or_path, cache_dir=cache_dir
