@@ -26,17 +26,17 @@ def main():
 
     # 1. Load the dataset
     dataset_bc_id = "bookcorpus/bookcorpus"
-    # dataset_wiki_id = "legacy-datasets/wikipedia"
+    dataset_wiki_id = "legacy-datasets/wikipedia"
 
     dataset_bc = load_dataset(dataset_bc_id, split="train", cache_dir=".cache")
-    dataset_bc = dataset_bc.select(range(min(len(dataset_bc), 10_000)))  # For testing
-    # dataset_wiki = load_dataset(dataset_wiki_id, "20200501.en", cache_dir=".cache")
+    # dataset_bc = dataset_bc.select(range(min(len(dataset_bc), 10_000)))  # For testing
+    dataset_wiki = load_dataset(dataset_wiki_id, "20200501.en", cache_dir=".cache")
 
     # 2. Prepare the dataset
     tokenizer = AutoTokenizer.from_pretrained(model_name, cache_dir=".cache")
 
     dataset = prepare_dataset(
-        datasets=[dataset_bc],
+        datasets=[dataset_bc, dataset_wiki],
         tokenizer=tokenizer,
         max_seq_len=max_seq_len,
         tokenization_kwargs={"padding": "do_not_pad"},
