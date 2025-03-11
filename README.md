@@ -1,7 +1,7 @@
 # BertDistiller: Knowledge Distillation for BERT Models
 
 [![Python Version](https://img.shields.io/badge/python-3.10-blue.svg)](https://www.python.org/downloads/release/python-3100/)
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![License](https://img.shields.io/badge/License-Apache_2.0-green.svg)](LICENSE)
 
 A flexible framework for distilling BERT models using various distillation techniques, built on the Hugging Face Transformers library.
 

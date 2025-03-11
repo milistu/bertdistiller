@@ -75,7 +75,7 @@ def main():
         adam_beta2=0.999,
         adam_epsilon=1e-6,
         max_steps=400_000,
-        warmup_ratio=0.1,
+        warmup_ratio=0.01,
         logging_steps=1_000,
         save_steps=10_000,
         seed=42,
