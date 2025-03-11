@@ -42,7 +42,7 @@ def main():
         max_seq_len=max_seq_len,
         tokenization_kwargs={"padding": "do_not_pad"},
     )
-    dataset = dataset.train_test_split(test_size=0.1, seed=seed)
+    dataset = dataset.train_test_split(test_size=0.01, seed=seed)
     train_dataset = dataset["train"]
     test_dataset = dataset["test"]
     logger.info(f"Train dataset: {train_dataset}")
@@ -67,17 +67,17 @@ def main():
         },
         # Training arguments
         output_dir=f"models/{run_name}_{dt}",
-        per_device_train_batch_size=32,
-        per_device_eval_batch_size=32,
+        per_device_train_batch_size=256,
+        per_device_eval_batch_size=256,
         learning_rate=6e-4,
         weight_decay=0.01,
         adam_beta1=0.9,
         adam_beta2=0.999,
         adam_epsilon=1e-6,
         max_steps=400_000,
-        warmup_steps=4_000,
+        warmup_ratio=0.1,
         logging_steps=1_000,
-        save_steps=50_000,
+        save_steps=10_000,
         seed=42,
         ddp_find_unused_parameters=True,
         save_total_limit=5,
@@ -87,7 +87,7 @@ def main():
         greater_is_better=False,
         save_strategy="steps",
         eval_strategy="steps",
-        eval_steps=50_000,
+        eval_steps=10_000,
     )
 
     # 4. Define our models
