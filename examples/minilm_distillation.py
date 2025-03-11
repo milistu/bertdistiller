@@ -29,8 +29,9 @@ def main():
     dataset_wiki_id = "legacy-datasets/wikipedia"
 
     dataset_bc = load_dataset(dataset_bc_id, split="train", cache_dir=".cache")
-    # dataset_bc = dataset_bc.select(range(min(len(dataset_bc), 10_000)))  # For testing
-    dataset_wiki = load_dataset(dataset_wiki_id, "20220301.en", cache_dir=".cache")
+    dataset_wiki = load_dataset(
+        dataset_wiki_id, "20220301.en", split="train", cache_dir=".cache"
+    )
 
     # 2. Prepare the dataset
     tokenizer = AutoTokenizer.from_pretrained(model_name, cache_dir=".cache")
