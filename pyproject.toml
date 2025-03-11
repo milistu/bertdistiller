@@ -1,7 +1,7 @@
 [tool.poetry]
-name = "minilm"
+name = "bertdistiller"
 version = "0.1.0"
-description = "BERT Distillation with MiniLMv2 technique."
+description = "BERT Distillation"
 authors = ["milistu <studen.m98@gmail.com>"]
 readme = "README.md"
 
