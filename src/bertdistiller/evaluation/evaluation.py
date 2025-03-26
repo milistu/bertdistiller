@@ -10,7 +10,7 @@ from transformers import TrainingArguments
 from .run_glue import DataTrainingArguments, ModelArguments, run_glue
 
 
-def evaluate(
+def evaluation(
     model_name_or_path: str,
     tokenizer_name: Optional[str] = None,
     tasks: Union[List[str], str] = [
