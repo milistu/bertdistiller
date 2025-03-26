@@ -17,8 +17,6 @@ Key features:
 - **Task-agnostic distillation**: Compress models without task-specific fine-tuning (task-specific distillation planned for future releases)
 - **Flexible architecture**: Compress models to different sizes by configuring layers and dimensions
 - **Teacher weight inheritance**: Option to initialize student with teacher weights for better performance
-- **Multi-head self-attention relation distillation**: Transfer knowledge using fine-grained self-attention relations
-- **Multiple relation heads**: More relation heads provide more granular knowledge transfer
 - **Support for various teacher models**: Compatible with BERT-based architectures
 
 ## Installation
@@ -34,6 +32,10 @@ pip install -e .
 ```
 
 ## Quick Start
+
+### Complete Example
+
+See the [examples/minilm_distillation.py](examples/minilm_distillation.py) file for a complete distillation example.
 
 ### Preparing Datasets
 
@@ -141,7 +143,7 @@ The implementation supports three primary relation types:
 
 ### Teacher Weight Inheritance
 
-BertDistiller supports initializing the student model with the teacher's weights, which can improve distillation performance. The `create_student` function intelligently handles weight transfer, including cases where the student has different hidden dimensions and fewer layers than the teacher.
+BertDistiller supports initializing the student model with the teacher's weights, which can improve distillation performance. The `create_student` function handles weight transfer, including cases where the student has different hidden dimensions and fewer layers than the teacher.
 
 ## Configuration Options
 
@@ -157,10 +159,6 @@ This class extends Hugging Face's `TrainingArguments` with MiniLMv2-specific par
 | `student_attention_heads` | Number of attention heads in the student model |
 | `num_relation_heads` | Number of relation heads for distillation (more heads = more fine-grained knowledge) |
 | `relations` | Dictionary mapping relation types to weights, e.g., `{(1,1): 1.0}` for Q-Q relation |
-
-## Complete Example
-
-See the [examples/minilm_distillation.py](examples/minilm_distillation.py) file for a complete distillation example.
 
 ## Evaluation
 
