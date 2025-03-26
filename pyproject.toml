@@ -9,7 +9,10 @@ readme = "README.md"
 python = "^3.10"
 loguru = "^0.7.3"
 datasets = "^3.2.0"
-transformers = {extras = ["torch"], version = "^4.48.2"}
+transformers = {extras = ["torch"], version = "^4.49.0"}
+evaluate = "^0.4.3"
+scikit-learn = "^1.6.1"
+scipy = "^1.15.2"
 
 
 [tool.poetry.group.dev.dependencies]

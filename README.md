@@ -17,8 +17,6 @@ Key features:
 - **Task-agnostic distillation**: Compress models without task-specific fine-tuning (task-specific distillation planned for future releases)
 - **Flexible architecture**: Compress models to different sizes by configuring layers and dimensions
 - **Teacher weight inheritance**: Option to initialize student with teacher weights for better performance
-- **Multi-head self-attention relation distillation**: Transfer knowledge using fine-grained self-attention relations
-- **Multiple relation heads**: More relation heads provide more granular knowledge transfer
 - **Support for various teacher models**: Compatible with BERT-based architectures
 
 ## Installation
@@ -35,7 +33,41 @@ pip install -e .
 
 ## Quick Start
 
-### Basic Usage
+### Complete Example
+
+See the [examples/minilm_distillation.py](examples/minilm_distillation.py) file for a complete distillation example.
+
+### Preparing Datasets
+
+The library includes utilities for preparing datasets for distillation:
+
+```python
+from bertdistiller.data import prepare_dataset
+from transformers import AutoTokenizer
+from datasets import load_dataset
+
+# Load datasets
+dataset_bc = load_dataset("bookcorpus/bookcorpus", split="train")
+dataset_wiki = load_dataset("legacy-datasets/wikipedia", "20220301.en", split="train")
+
+# Load tokenizer
+tokenizer = AutoTokenizer.from_pretrained("google-bert/bert-base-uncased")
+
+# Prepare and combine datasets
+combined_dataset = prepare_dataset(
+    datasets=[dataset_bc, dataset_wiki],  # List of datasets
+    tokenizer=tokenizer,
+    max_seq_len=128,
+    tokenization_kwargs={"padding": "do_not_pad"},
+)
+
+# Split into train/test
+dataset = combined_dataset.train_test_split(test_size=0.01, seed=42)
+train_dataset = dataset["train"]
+test_dataset = dataset["test"]
+```
+
+### Training the Model
 
 ```python
 from bertdistiller import MiniLMTrainer, MiniLMTrainingArguments, create_student
@@ -93,36 +125,6 @@ trainer.train()
 student.save_pretrained("./bert-base-uncased-L6-H384")
 ```
 
-### Preparing Datasets
-
-The library includes utilities for preparing datasets for distillation:
-
-```python
-from bertdistiller.data import prepare_dataset
-from transformers import AutoTokenizer
-from datasets import load_dataset
-
-# Load datasets
-dataset_bc = load_dataset("bookcorpus/bookcorpus", split="train")
-dataset_wiki = load_dataset("legacy-datasets/wikipedia", "20220301.en", split="train")
-
-# Load tokenizer
-tokenizer = AutoTokenizer.from_pretrained("google-bert/bert-base-uncased")
-
-# Prepare and combine datasets
-combined_dataset = prepare_dataset(
-    datasets=[dataset_bc, dataset_wiki],  # List of datasets
-    tokenizer=tokenizer,
-    max_seq_len=128,
-    tokenization_kwargs={"padding": "do_not_pad"},
-)
-
-# Split into train/test
-dataset = combined_dataset.train_test_split(test_size=0.01, seed=42)
-train_dataset = dataset["train"]
-test_dataset = dataset["test"]
-```
-
 ## Available Distillation Methods
 
 ### MiniLMv2
@@ -141,7 +143,7 @@ The implementation supports three primary relation types:
 
 ### Teacher Weight Inheritance
 
-BertDistiller supports initializing the student model with the teacher's weights, which can improve distillation performance. The `create_student` function intelligently handles weight transfer, including cases where the student has different hidden dimensions and fewer layers than the teacher.
+BertDistiller supports initializing the student model with the teacher's weights, which can improve distillation performance. The `create_student` function handles weight transfer, including cases where the student has different hidden dimensions and fewer layers than the teacher.
 
 ## Configuration Options
 
@@ -158,9 +160,70 @@ This class extends Hugging Face's `TrainingArguments` with MiniLMv2-specific par
 | `num_relation_heads` | Number of relation heads for distillation (more heads = more fine-grained knowledge) |
 | `relations` | Dictionary mapping relation types to weights, e.g., `{(1,1): 1.0}` for Q-Q relation |
 
-## Complete Example
+## Evaluation
 
-See the [examples/minilm_distillation.py](examples/minilm_distillation.py) file for a complete distillation example.
+BertDistiller provides utilities for evaluating distilled models on common benchmarks like GLUE:
+
+```python
+from bertdistiller.evaluation import evaluate
+
+# Evaluate a model on all GLUE tasks with different hyperparameters
+evaluate(
+    model_name_or_path="microsoft/MiniLM-L12-H384-uncased", # or path to your distilled model
+    tasks=["mnli", "qnli", "qqp", "rte", "sst2", "mrpc", "cola", "stsb"],
+    learning_rate=[1e-5, 2e-5, 3e-5],
+    epochs=[3, 5, 10],
+)
+
+# Evaluate on specific tasks with custom parameters
+evaluate(
+    model_name_or_path="microsoft/MiniLM-L12-H384-uncased",
+    tasks=["sst2", "mrpc"],  # Subset of tasks
+    learning_rate=3e-5,    # Specific learning rate
+    epochs=3,              # Specific number of epochs
+    per_device_train_batch_size=16,
+    cache_dir=".cache",
+)
+```
+The evaluation utility:
+- Runs fine-tuning on GLUE tasks with specified hyperparameters
+- Organizes results by task and hyperparameter combination
+- Displays training progress in real-time
+- Saves results in a structured format for easy comparison
+
+Results are saved in your specified output directory with the following structure:
+```text
+evaluation_results/
+└── model_name/
+    ├── task1/
+    │   ├── epochs_learning_rate/
+    │   │   └── (evaluation results)
+    │   └── ...
+    ├── task2/
+    │   └── ...
+    └── ...
+```
+This evaluation helps compare the performance of distilled models against other models or their teacher models.
+
+### Create Evaluation Summary
+After running evaluations, you can generate a summary table to easily compare model performance across tasks:
+```python
+from bertdistiller.evaluation import create_summary_table
+
+# Create summary table from evaluation results
+summary = create_summary_table(
+    results_dir="./evaluation_results",
+    save=True,
+    include_average=True,
+)
+
+print(summary)
+```
+The summary table displays the best scores for each model across all tasks, showing:
+- Model names as rows
+- GLUE tasks as columns
+- Optional "Avg" column with mean performance across tasks
+- All scores displayed as percentages rounded to 2 decimal places
 
 ## Recommendations
 
