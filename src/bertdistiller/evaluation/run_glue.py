@@ -253,22 +253,27 @@ class ModelArguments:
     )
 
 
-def main():
+def run_glue(
+    model_args: ModelArguments = None,
+    data_args: DataTrainingArguments = None,
+    training_args: TrainingArguments = None,
+):
     # See all possible arguments in src/transformers/training_args.py
     # or by passing the --help flag to this script.
     # We now keep distinct sets of args, for a cleaner separation of concerns.
+    if model_args is None and data_args is None and training_args is None:
 
-    parser = HfArgumentParser(
-        (ModelArguments, DataTrainingArguments, TrainingArguments)
-    )
-    if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
-        # If we pass only one argument to the script and it's the path to a json file,
-        # let's parse it to get our arguments.
-        model_args, data_args, training_args = parser.parse_json_file(
-            json_file=os.path.abspath(sys.argv[1])
+        parser = HfArgumentParser(
+            (ModelArguments, DataTrainingArguments, TrainingArguments)
         )
-    else:
-        model_args, data_args, training_args = parser.parse_args_into_dataclasses()
+        if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
+            # If we pass only one argument to the script and it's the path to a json file,
+            # let's parse it to get our arguments.
+            model_args, data_args, training_args = parser.parse_json_file(
+                json_file=os.path.abspath(sys.argv[1])
+            )
+        else:
+            model_args, data_args, training_args = parser.parse_args_into_dataclasses()
 
     # Sending telemetry. Tracking the example usage helps us better allocate resources to maintain them. The
     # information sent is the one passed as arguments along with your Python/PyTorch versions.
@@ -744,8 +749,8 @@ def main():
 
 def _mp_fn(index):
     # For xla_spawn (TPUs)
-    main()
+    run_glue()
 
 
 if __name__ == "__main__":
-    main()
+    run_glue()
