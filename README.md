@@ -171,22 +171,20 @@ from bertdistiller.evaluation import evaluate
 
 # Evaluate a model on all GLUE tasks with different hyperparameters
 evaluate(
-    model_name_or_path="./bert-base-uncased-L6-H384",
+    model_name_or_path="microsoft/MiniLM-L12-H384-uncased", # or path to your distilled model
     tasks=["mnli", "qnli", "qqp", "rte", "sst2", "mrpc", "cola", "stsb"],
     learning_rate=[1e-5, 2e-5, 3e-5],
     epochs=[3, 5, 10],
-    output_dir="./evaluation_results",
 )
 
 # Evaluate on specific tasks with custom parameters
 evaluate(
     model_name_or_path="microsoft/MiniLM-L12-H384-uncased",
     tasks=["sst2", "mrpc"],  # Subset of tasks
-    learning_rate=[3e-5],    # Specific learning rate
-    epochs=[3],              # Specific number of epochs
+    learning_rate=3e-5,    # Specific learning rate
+    epochs=3,              # Specific number of epochs
     per_device_train_batch_size=16,
     cache_dir=".cache",
-    show_live_output=True,   # See training progress in real-time
 )
 ```
 The evaluation utility:
@@ -207,7 +205,27 @@ evaluation_results/
     │   └── ...
     └── ...
 ```
-This comprehensive evaluation helps compare the performance of distilled models against their teacher models and other baselines.
+This evaluation helps compare the performance of distilled models against other models or their teacher models.
+
+### Create Evaluation Summary
+After running evaluations, you can generate a summary table to easily compare model performance across tasks:
+```python
+from bertdistiller.evaluation import create_summary_table
+
+# Create summary table from evaluation results
+summary = create_summary_table(
+    results_dir="./evaluation_results",
+    save=True,
+    include_average=True,
+)
+
+print(summary)
+```
+The summary table displays the best scores for each model across all tasks, showing:
+- Model names as rows
+- GLUE tasks as columns
+- Optional "Avg" column with mean performance across tasks
+- All scores displayed as percentages rounded to 2 decimal places
 
 ## Recommendations
 
