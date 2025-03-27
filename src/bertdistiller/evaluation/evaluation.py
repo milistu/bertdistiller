@@ -1,7 +1,7 @@
 import json
 from itertools import product
 from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, Union, Literal
 
 import pandas as pd
 from loguru import logger
@@ -10,7 +10,7 @@ from transformers import TrainingArguments
 from .run_glue import DataTrainingArguments, ModelArguments, run_glue
 
 
-def evaluate(
+def evaluation(
     model_name_or_path: str,
     tokenizer_name: Optional[str] = None,
     tasks: Union[List[str], str] = [
@@ -102,7 +102,7 @@ def evaluate(
             overwrite_output_dir=True,
             do_train=True,
             do_eval=True,
-            evaluation_strategy="epoch",
+            eval_strategy="epoch",
             per_device_train_batch_size=per_device_train_batch_size,
             per_device_eval_batch_size=per_device_eval_batch_size,
             learning_rate=lr,
@@ -132,6 +132,7 @@ def create_summary_table(
     metrics_file: str = "eval_results.json",
     metric: str = "eval_accuracy",
     round_decimals: int = 2,
+    aggregation: Literal["mean", "best"] = "mean",
 ) -> pd.DataFrame:
     """
     Create a simple summary table of model performance across GLUE tasks.
@@ -144,6 +145,8 @@ def create_summary_table(
         metrics_file: Name of the file containing evaluation metrics (default: "eval_results.json")
         metric: Name of the metric to include in the summary (default: "eval_accuracy")
         round_decimals: Number of decimal places to round the scores to (default: 2)
+        aggregation: Method to aggregate multiple runs for each task (default: "mean")
+                     Options: "mean" - average of all runs, "best" - best score from all runs
 
     Returns:
         DataFrame containing model performance with models as rows and tasks as columns
@@ -164,6 +167,10 @@ def create_summary_table(
     """
     results_dir = Path(results_dir) if isinstance(results_dir, str) else results_dir
     assert results_dir.is_dir(), f"Directory {results_dir} does not exist"
+    assert aggregation in [
+        "mean",
+        "best",
+    ], f"Invalid aggregation method: {aggregation}, must be 'mean' or 'best'"
 
     # Collect results for each model and task
     model_results: Dict[str, Dict[str, float]] = {}
@@ -182,6 +189,7 @@ def create_summary_table(
             task_name = task_dir.name
 
             # Find the best result across all hyperparameter runs
+            all_scores = []
             best_score = None
 
             for run_dir in task_dir.iterdir():
@@ -197,14 +205,22 @@ def create_summary_table(
                         metrics = json.load(f)
 
                     score = metrics.get(metric, None)
-                    if best_score is None or score > best_score:
-                        best_score = score
+                    if score is not None:
+                        all_scores.append(score)
+
+                        if best_score is None or score > best_score:
+                            best_score = score
 
                 except (json.JSONDecodeError, IOError):
                     continue
 
-            if best_score is not None:
-                model_results[model_name][task_name] = best_score * 100
+            if all_scores:
+                if aggregation == "mean":
+                    final_score = sum(all_scores) / len(all_scores)
+                else:
+                    final_score = best_score
+
+                model_results[model_name][task_name] = final_score * 100
 
     df = pd.DataFrame.from_dict(model_results, orient="index")
 
