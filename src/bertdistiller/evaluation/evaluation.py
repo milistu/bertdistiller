@@ -102,7 +102,7 @@ def evaluation(
             overwrite_output_dir=True,
             do_train=True,
             do_eval=True,
-            evaluation_strategy="epoch",
+            eval_strategy="epoch",
             per_device_train_batch_size=per_device_train_batch_size,
             per_device_eval_batch_size=per_device_eval_batch_size,
             learning_rate=lr,
