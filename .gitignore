@@ -169,3 +169,10 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# Library specifics
+poetry.lock
+*.json
+*.txt
+*safetensors
+*results*
