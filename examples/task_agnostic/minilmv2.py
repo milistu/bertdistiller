@@ -8,7 +8,7 @@ from transformers import (
     DataCollatorWithPadding,
 )
 
-from bertdistiller import (
+from bertdistiller.task_agnostic import (
     MiniLMTrainer,
     MiniLMTrainingArguments,
     create_student,
