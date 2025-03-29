@@ -9,6 +9,18 @@ from transformers import TrainingArguments
 
 from .run_glue import DataTrainingArguments, ModelArguments, run_glue
 
+# Mapping of GLUE tasks to their appropriate metrics
+TASK_TO_METRIC = {
+    "mnli": "eval_accuracy",
+    "qnli": "eval_accuracy",
+    "qqp": "eval_f1",
+    "rte": "eval_accuracy",
+    "sst2": "eval_accuracy",
+    "mrpc": "eval_f1",
+    "cola": "eval_matthews_correlation",
+    "stsb": "eval_pearson",
+}
+
 
 def evaluation(
     model_name_or_path: str,
@@ -186,7 +198,8 @@ def create_summary_table(
             if not task_dir.is_dir():
                 continue
 
-            task_name = task_dir.name
+            task_name = task_dir.name.lower()
+            metric = TASK_TO_METRIC.get(task_name, "eval_accuracy")
 
             # Find the best result across all hyperparameter runs
             all_scores = []
@@ -202,9 +215,9 @@ def create_summary_table(
 
                 try:
                     with open(metrics_path, "r") as f:
-                        metrics = json.load(f)
+                        metrics_data = json.load(f)
 
-                    score = metrics.get(metric, None)
+                    score = metrics_data.get(metric)
                     if score is not None:
                         all_scores.append(score)
 
@@ -220,7 +233,15 @@ def create_summary_table(
                 else:
                     final_score = best_score
 
-                model_results[model_name][task_name] = final_score * 100
+                # Scale to percentage (0-100)
+                # Note: Matthews correlation is between -1 and 1, so we adjust it to 0-100 range
+                if task_name == "cola":
+                    # Adjust Matthews correlation from [-1,1] to [0,100]
+                    final_score = (final_score + 1) * 50
+                else:
+                    final_score = final_score * 100
+
+                model_results[model_name][task_name] = final_score
 
     df = pd.DataFrame.from_dict(model_results, orient="index")
 
