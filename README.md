@@ -20,6 +20,19 @@ Key features:
 - **Teacher weight inheritance**: Option to initialize student with teacher weights for better performance
 - **Support for various teacher models**: Compatible with BERT-based architectures
 
+## Experimental Results
+
+The following table compares our implementation's results with Microsoft's original MiniLM implementations on the GLUE benchmark:
+
+| Model | STSB | RTE | CoLA | QQP | SST-2 | MNLI | QNLI | MRPC | Avg |
+|-------|------|-----|------|-----|-------|------|------|------|-----|
+| MiniLM-L6-H768-distilled-from-BERT-Base | 88.66 | 67.11 | 72.90 | 87.18 | 91.55 | 83.58 | 90.20 | 89.17 | 83.79 |
+| MiniLM-L6-H384-distilled-from-BERT-Base | 87.33 | 64.74 | 66.63 | 85.72 | 90.58 | 81.85 | 89.55 | 88.00 | 81.80 |
+| **Our Model (L6-H384)** | 85.29 | 59.81 | 70.04 | 85.22 | 90.62 | 81.03 | 87.69 | 86.66 | 80.80 |
+
+Our implementation achieves comparable performance to the original MiniLM model, with just a 1% difference in average score. Note that our model was trained with a maximum sequence length of 128 tokens (vs 512 in the original paper) and was distilled on a single RTX A6000 GPU, demonstrating the efficiency and accessibility of our approach.
+
+
 ## Installation
 
 ```bash
