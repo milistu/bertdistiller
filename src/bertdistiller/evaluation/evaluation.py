@@ -142,7 +142,6 @@ def create_summary_table(
     output_file: Optional[str] = None,
     include_average: bool = True,
     metrics_file: str = "eval_results.json",
-    metric: str = "eval_accuracy",
     round_decimals: int = 2,
     aggregation: Literal["mean", "best"] = "mean",
 ) -> pd.DataFrame:
