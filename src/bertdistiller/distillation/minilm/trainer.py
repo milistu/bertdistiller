@@ -1,6 +1,6 @@
 import math
 from abc import ABC, abstractmethod
-from typing import Tuple
+from typing import Optional, Tuple
 
 import torch
 from torch import Tensor, nn
@@ -33,6 +33,74 @@ class BertAttentionExtractor(AttentionExtractor):
         self, attention_module: nn.Module
     ) -> Tuple[nn.Module, nn.Module, nn.Module]:
         return attention_module.query, attention_module.key, attention_module.value
+
+
+class ModernBertAttentionExtractor(AttentionExtractor):
+    """Handles attention extraction for ModernBERT models."""
+
+    def get_attention_module(self, model: PreTrainedModel, layer_idx: int) -> nn.Module:
+        """Gets the attention module for a specific layer in ModernBERT."""
+        return model.layers[layer_idx].attn
+
+    def get_qkv_projections(
+        self, attention_module: nn.Module
+    ) -> Tuple[nn.Module, nn.Module, nn.Module]:
+        """This method is not used for ModernBERT but is required by the interface."""
+        raise NotImplementedError(
+            "ModernBERT uses a combined QKV projection. Use extract_qkv instead."
+        )
+
+    def extract_qkv(
+        self,
+        attention_module: nn.Module,
+        hidden_states: Tensor,
+        position_ids: Optional[Tensor] = None,
+    ) -> Tuple[Tensor, Tensor, Tensor]:
+        """Extract query, key, value tensors from ModernBERT attention module."""
+        # Get dimensions
+        batch_size, seq_len, _ = hidden_states.shape
+        device = hidden_states.device
+
+        # Create position IDs if not provided
+        if position_ids is None:
+            position_ids = torch.arange(seq_len, device=device).unsqueeze(0)
+
+        # Apply the combined QKV projection
+        qkv_output = attention_module.Wqkv(hidden_states)
+
+        # Reshape QKV output to separate Q, K, V
+        qkv = qkv_output.view(
+            batch_size,
+            seq_len,
+            3,
+            attention_module.num_heads,
+            attention_module.head_dim,
+        )
+
+        # Get cos and sin components from the rotary embedding
+        cos, sin = attention_module.rotary_emb(qkv, position_ids=position_ids)
+
+        # Transpose and unbind to get query, key, value
+        query, key, value = qkv.transpose(3, 1).unbind(dim=2)
+
+        # Apply rotary embeddings
+        query, key = self._apply_rotary_pos_emb(query, key, cos, sin)
+
+        return query, key, value
+
+    def _apply_rotary_pos_emb(self, q, k, cos, sin, unsqueeze_dim=1):
+        """Apply rotary position embeddings to query and key tensors."""
+        cos = cos.unsqueeze(unsqueeze_dim)
+        sin = sin.unsqueeze(unsqueeze_dim)
+        q_embed = (q * cos) + (self._rotate_half(q) * sin)
+        k_embed = (k * cos) + (self._rotate_half(k) * sin)
+        return q_embed, k_embed
+
+    def _rotate_half(self, x):
+        """Rotates half the hidden dims of the input."""
+        x1 = x[..., : x.shape[-1] // 2]
+        x2 = x[..., x.shape[-1] // 2 :]
+        return torch.cat((-x2, x1), dim=-1)
 
 
 class MiniLMTrainer(Trainer):
@@ -256,3 +324,49 @@ class MiniLMTrainer(Trainer):
             total_loss += weight * relation_loss
 
         return (total_loss,) if return_outputs else total_loss
+
+
+class ModernMiniLMTrainer(MiniLMTrainer):
+    """MiniLM trainer specialized for ModernBERT architecture."""
+
+    def _get_attention_extractor(self):
+        architecture = self.teacher.config.architectures[0]
+        if "ModernBertForMaskedLM" == architecture:
+            return ModernBertAttentionExtractor()
+        else:
+            return super()._get_attention_extractor()
+
+    def _get_relation_vectors(
+        self, attention_module: nn.Module, hidden_states: Tensor, head_size: int
+    ) -> Tuple[Tensor, Tensor, Tensor]:
+        """Extracts query/key/value vectors, handling ModernBERT's unique architecture."""
+        # Check if this is a ModernBERT attention module
+        if hasattr(attention_module, "Wqkv"):
+            # Create position IDs for rotary embeddings
+            batch_size, seq_len, _ = hidden_states.shape
+            device = hidden_states.device
+            position_ids = torch.arange(seq_len, device=device).unsqueeze(0)
+
+            # Use ModernBERT-specific extraction
+            query, key, value = self.attention_extractor.extract_qkv(
+                attention_module, hidden_states, position_ids
+            )
+
+            # Reshape for relation projection
+            if query.shape[1] != self.args.num_relation_heads:
+                # Concatenate heads
+                query = query.transpose(1, 2).reshape(batch_size, seq_len, -1)
+                key = key.transpose(1, 2).reshape(batch_size, seq_len, -1)
+                value = value.transpose(1, 2).reshape(batch_size, seq_len, -1)
+
+                # Reshape to desired relation heads
+                query = self._transpose_for_scores_relations(query, head_size)
+                key = self._transpose_for_scores_relations(key, head_size)
+                value = self._transpose_for_scores_relations(value, head_size)
+        else:
+            # Use the original approach for traditional BERT
+            query, key, value = super()._get_relation_vectors(
+                attention_module, hidden_states, head_size
+            )
+
+        return query, key, value
