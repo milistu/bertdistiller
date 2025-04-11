@@ -39,7 +39,8 @@ def create_student(
 
     # Adjust intermediate_size based on model type
     if "ModernBert" in teacher_config.architectures[0]:
-        raise NotImplementedError("ModernBERT distillation is not yet supported.")
+        # raise NotImplementedError("ModernBERT distillation is not yet supported.")
+        student_config.intermediate_size = 3 * args.student_hidden_size
     else:
         # Original BERT: intermediate_size = 4 * hidden_size
         student_config.intermediate_size = 4 * args.student_hidden_size
