@@ -45,7 +45,13 @@ class ModernBertAttentionExtractor(AttentionExtractor):
 
     def get_attention_module(self, model: PreTrainedModel, layer_idx: int) -> nn.Module:
         """Gets the attention module for a specific layer in ModernBERT."""
-        return model.layers[layer_idx].attn
+        # Unwrap DataParallel if necessary
+        if isinstance(model, nn.DataParallel):
+            actual_model = model.module
+        else:
+            actual_model = model
+
+        return actual_model.layers[layer_idx].attn
 
     def get_qkv_projections(
         self, attention_module: nn.Module
@@ -356,7 +362,13 @@ class ModernMiniLMTrainer(MiniLMTrainer):
     """MiniLM trainer specialized for ModernBERT architecture."""
 
     def _get_attention_extractor(self):
-        architecture = self.teacher.config.architectures[0]
+        # Unwrap DataParallel if necessary
+        teacher_model = (
+            self.teacher.module
+            if isinstance(self.teacher, nn.DataParallel)
+            else self.teacher
+        )
+        architecture = teacher_model.config.architectures[0]
         if "ModernBertForMaskedLM" == architecture:
             return ModernBertAttentionExtractor()
         else:
