@@ -27,7 +27,12 @@ class BertAttentionExtractor(AttentionExtractor):
     """Handles attention extraction for traditional BERT models."""
 
     def get_attention_module(self, model: PreTrainedModel, layer_idx: int) -> nn.Module:
-        return model.encoder.layer[layer_idx].attention.self
+        # Unwrap DataParallel if necessary
+        if isinstance(model, nn.DataParallel):
+            actual_model = model.module
+        else:
+            actual_model = model
+        return actual_model.encoder.layer[layer_idx].attention.self
 
     def get_qkv_projections(
         self, attention_module: nn.Module
@@ -117,17 +122,29 @@ class MiniLMTrainer(Trainer):
         self.kl_loss = nn.KLDivLoss(reduction="sum")
 
     def _validate_params(self):
-        if hasattr(self.teacher, "encoder"):
-            max_teacher_layers = len(self.teacher.encoder.layer)
+        # Unwrap DataParallel if necessary
+        teacher_model = (
+            self.teacher.module
+            if isinstance(self.teacher, nn.DataParallel)
+            else self.teacher
+        )
+        if hasattr(teacher_model, "encoder"):
+            max_teacher_layers = len(teacher_model.encoder.layer)
         else:
-            max_teacher_layers = len(self.teacher.layers)
+            max_teacher_layers = len(teacher_model.layers)
 
         assert (
             self.args.teacher_layer <= max_teacher_layers
         ), f"Teacher layer {self.args.teacher_layer} exceeds available layers ({max_teacher_layers})"
 
     def _get_attention_extractor(self):
-        architecture = self.teacher.config.architectures[0]
+        # Unwrap DataParallel if necessary
+        teacher_model = (
+            self.teacher.module
+            if isinstance(self.teacher, nn.DataParallel)
+            else self.teacher
+        )
+        architecture = teacher_model.config.architectures[0]
         if "ModernBertForMaskedLM" == architecture:
             raise NotImplementedError("ModernBERT distillation is not yet supported.")
         elif "BertForMaskedLM" == architecture:
@@ -263,6 +280,13 @@ class MiniLMTrainer(Trainer):
             return_outputs: Whether to return the outputs of the model.
             num_items_in_batch: The number of items in the batch.
         """
+        # Unwrap DataParallel if necessary
+        student_model = model.module if isinstance(model, nn.DataParallel) else model
+        teacher_model = (
+            self.teacher.module
+            if isinstance(self.teacher, nn.DataParallel)
+            else self.teacher
+        )
 
         # Forward pass through models
         with torch.no_grad():
@@ -280,9 +304,11 @@ class MiniLMTrainer(Trainer):
 
         # Calculate head sizes
         teacher_head_size = (
-            self.teacher.config.hidden_size // self.args.num_relation_heads
+            teacher_model.config.hidden_size // self.args.num_relation_heads
         )
-        student_head_size = model.config.hidden_size // self.args.num_relation_heads
+        student_head_size = (
+            student_model.config.hidden_size // self.args.num_relation_heads
+        )
 
         # Get relation vectors
         relation_vectors_T = self._get_relation_vectors(
