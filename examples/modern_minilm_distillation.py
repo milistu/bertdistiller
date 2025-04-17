@@ -18,7 +18,7 @@ from bertdistiller import (
 
 def main():
     model_name = "answerdotai/ModernBERT-base"
-    max_seq_len = 64  # 128
+    max_seq_len = 128
     seed = 42
     use_teacher_weights = False
 
@@ -26,18 +26,18 @@ def main():
 
     # 1. Load the dataset
     dataset_bc_id = "bookcorpus/bookcorpus"
-    # dataset_wiki_id = "legacy-datasets/wikipedia"
+    dataset_wiki_id = "legacy-datasets/wikipedia"
 
-    dataset_bc = load_dataset(dataset_bc_id, split="train[:1%]", cache_dir=".cache")
-    # dataset_wiki = load_dataset(
-    #     dataset_wiki_id, "20220301.en", split="train", cache_dir=".cache"
-    # )
+    dataset_bc = load_dataset(dataset_bc_id, split="train", cache_dir=".cache")
+    dataset_wiki = load_dataset(
+        dataset_wiki_id, "20220301.en", split="train", cache_dir=".cache"
+    )
 
     # 2. Prepare the dataset
     tokenizer = AutoTokenizer.from_pretrained(model_name, cache_dir=".cache")
 
     dataset = prepare_dataset(
-        datasets=[dataset_bc],  # , dataset_wiki],
+        datasets=[dataset_bc, dataset_wiki],
         tokenizer=tokenizer,
         max_seq_len=max_seq_len,
         tokenization_kwargs={"padding": "do_not_pad"},
@@ -55,7 +55,7 @@ def main():
     run_name = f"ModernMiniLM-L6-H384-{short_model_name}"
     args = MiniLMTrainingArguments(
         # Distillation arguments
-        teacher_layer=22,  # 12,
+        teacher_layer=22,
         student_layer=6,
         student_hidden_size=384,
         student_attention_heads=12,
@@ -67,8 +67,8 @@ def main():
         },
         # Training arguments
         output_dir=f"models/{run_name}_{dt}",
-        per_device_train_batch_size=32,
-        per_device_eval_batch_size=32,
+        per_device_train_batch_size=256,
+        per_device_eval_batch_size=256,
         learning_rate=6e-4,
         weight_decay=0.01,
         adam_beta1=0.9,
@@ -76,18 +76,18 @@ def main():
         adam_epsilon=1e-6,
         max_steps=400_000,
         warmup_ratio=0.01,
-        logging_steps=10,  # 1_000,
-        save_steps=500,  # 10_000,
+        logging_steps=1_000,
+        save_steps=10_000,
         seed=42,
         ddp_find_unused_parameters=True,
-        save_total_limit=5,
+        save_total_limit=10,
         load_best_model_at_end=True,
         metric_for_best_model="eval_loss",
         prediction_loss_only=True,
         greater_is_better=False,
         save_strategy="steps",
         eval_strategy="steps",
-        eval_steps=10,  # 10_000,
+        eval_steps=10_000,
     )
 
     # 4. Define our models
