@@ -16,7 +16,7 @@ class AttentionExtractor(ABC):
         pass
 
     @abstractmethod
-    def get_qkv_projections(
+    def get_qkv_projection_matrices(
         self, attention_module: nn.Module
     ) -> Tuple[nn.Module, nn.Module, nn.Module]:
         """Extracts Q/K/V projection matrices from attention module."""
@@ -27,14 +27,9 @@ class BertAttentionExtractor(AttentionExtractor):
     """Handles attention extraction for traditional BERT models."""
 
     def get_attention_module(self, model: PreTrainedModel, layer_idx: int) -> nn.Module:
-        # Unwrap DataParallel if necessary
-        if isinstance(model, nn.DataParallel):
-            actual_model = model.module
-        else:
-            actual_model = model
-        return actual_model.encoder.layer[layer_idx].attention.self
+        return model.encoder.layer[layer_idx].attention.self
 
-    def get_qkv_projections(
+    def get_qkv_projection_matrices(
         self, attention_module: nn.Module
     ) -> Tuple[nn.Module, nn.Module, nn.Module]:
         return attention_module.query, attention_module.key, attention_module.value
@@ -45,23 +40,17 @@ class ModernBertAttentionExtractor(AttentionExtractor):
 
     def get_attention_module(self, model: PreTrainedModel, layer_idx: int) -> nn.Module:
         """Gets the attention module for a specific layer in ModernBERT."""
-        # Unwrap DataParallel if necessary
-        if isinstance(model, nn.DataParallel):
-            actual_model = model.module
-        else:
-            actual_model = model
+        return model.layers[layer_idx].attn
 
-        return actual_model.layers[layer_idx].attn
-
-    def get_qkv_projections(
+    def get_qkv_projection_matrices(
         self, attention_module: nn.Module
     ) -> Tuple[nn.Module, nn.Module, nn.Module]:
         """This method is not used for ModernBERT but is required by the interface."""
         raise NotImplementedError(
-            "ModernBERT uses a combined QKV projection. Use extract_qkv instead."
+            "ModernBERT uses a combined QKV projection. Use `compute_qkv_attention_vectors` instead."
         )
 
-    def extract_qkv(
+    def compute_qkv_attention_vectors(
         self,
         attention_module: nn.Module,
         hidden_states: Tensor,
@@ -127,13 +116,13 @@ class MiniLMTrainer(Trainer):
 
         self.kl_loss = nn.KLDivLoss(reduction="sum")
 
+    def _unwrap_model(self, model):
+        """Unwraps model from DataParallel if necessary."""
+        return model.module if isinstance(model, nn.DataParallel) else model
+
     def _validate_params(self):
         # Unwrap DataParallel if necessary
-        teacher_model = (
-            self.teacher.module
-            if isinstance(self.teacher, nn.DataParallel)
-            else self.teacher
-        )
+        teacher_model = self._unwrap_model(self.teacher)
         if hasattr(teacher_model, "encoder"):
             max_teacher_layers = len(teacher_model.encoder.layer)
         else:
@@ -145,11 +134,7 @@ class MiniLMTrainer(Trainer):
 
     def _get_attention_extractor(self):
         # Unwrap DataParallel if necessary
-        teacher_model = (
-            self.teacher.module
-            if isinstance(self.teacher, nn.DataParallel)
-            else self.teacher
-        )
+        teacher_model = self._unwrap_model(self.teacher)
         architecture = teacher_model.config.architectures[0]
         if "ModernBertForMaskedLM" == architecture:
             raise NotImplementedError("ModernBERT distillation is not yet supported.")
@@ -178,7 +163,7 @@ class MiniLMTrainer(Trainer):
             Tuple of (query, key, value) tensors shaped [batch_size, num_heads, seq_len, head_size]
         """
         # Get Q/K/V projections for the current architecture
-        q_proj, k_proj, v_proj = self.attention_extractor.get_qkv_projections(
+        q_proj, k_proj, v_proj = self.attention_extractor.get_qkv_projection_matrices(
             attention_module
         )
 
@@ -287,12 +272,8 @@ class MiniLMTrainer(Trainer):
             num_items_in_batch: The number of items in the batch.
         """
         # Unwrap DataParallel if necessary
-        student_model = model.module if isinstance(model, nn.DataParallel) else model
-        teacher_model = (
-            self.teacher.module
-            if isinstance(self.teacher, nn.DataParallel)
-            else self.teacher
-        )
+        student_model = self._unwrap_model(model)
+        teacher_model = self._unwrap_model(self.teacher)
 
         # Forward pass through models
         with torch.no_grad():
@@ -319,14 +300,14 @@ class MiniLMTrainer(Trainer):
         # Get relation vectors
         relation_vectors_T = self._get_relation_vectors(
             attention_module=self.attention_extractor.get_attention_module(
-                self.teacher, self.args.teacher_layer - 1
+                teacher_model, self.args.teacher_layer - 1
             ),
             hidden_states=teacher_hidden,
             head_size=teacher_head_size,
         )
         relation_vectors_S = self._get_relation_vectors(
             attention_module=self.attention_extractor.get_attention_module(
-                model, self.args.student_layer - 1
+                student_model, self.args.student_layer - 1
             ),
             hidden_states=student_hidden,
             head_size=student_head_size,
@@ -363,11 +344,7 @@ class ModernMiniLMTrainer(MiniLMTrainer):
 
     def _get_attention_extractor(self):
         # Unwrap DataParallel if necessary
-        teacher_model = (
-            self.teacher.module
-            if isinstance(self.teacher, nn.DataParallel)
-            else self.teacher
-        )
+        teacher_model = self._unwrap_model(self.teacher)
         architecture = teacher_model.config.architectures[0]
         if "ModernBertForMaskedLM" == architecture:
             return ModernBertAttentionExtractor()
@@ -386,7 +363,7 @@ class ModernMiniLMTrainer(MiniLMTrainer):
             position_ids = torch.arange(seq_len, device=device).unsqueeze(0)
 
             # Use ModernBERT-specific extraction
-            query, key, value = self.attention_extractor.extract_qkv(
+            query, key, value = self.attention_extractor.compute_qkv_attention_vectors(
                 attention_module, hidden_states, position_ids
             )
 
